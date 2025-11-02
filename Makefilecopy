@@ -1,0 +1,55 @@
+.PHONY: start db-up db-down test logs db-psql db-status venv ensure-venv
+
+# 优先选 Python 3.11，不存在则回退到系统 python3
+PYTHON := $(shell which python3.11 2>/dev/null || which python3)
+
+# ---------- VENV 管理 ----------
+venv:
+	@echo "🐍 Creating virtual environment with: $(PYTHON)"
+	@rm -rf .venv
+	@$(PYTHON) -m venv .venv
+	@echo "✅ Virtualenv created with $$($(PYTHON) --version)"
+	@echo "👉 Activate with: source .venv/bin/activate"
+	@echo "💡 Then: pip install -r requirements.txt"
+
+# 若 .venv 不存在或缺少 python 可执行文件，则自动创建
+ensure-venv:
+	@if [ ! -x ".venv/bin/python" ]; then \
+		echo "⚠️  .venv missing or invalid. Creating..."; \
+		$(MAKE) venv; \
+		echo "⬇️  Installing dependencies..."; \
+		. .venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt; \
+	else \
+		echo "✅ venv OK: .venv/bin/python"; \
+	fi
+
+# ---------- 开发与数据库 ----------
+start: ensure-venv db-up
+	@echo "🔹 Activating virtualenv:"
+	@echo "   source .venv/bin/activate"
+	@echo "✅ Environment is ready. You can now run: python main.py ..."
+
+db-up:
+	@echo "🚀 Starting Postgres via docker compose..."
+	docker compose up -d
+	@echo "⏳ Waiting for Postgres to become ready..."
+	@sleep 2
+	@docker exec -it filings_postgres pg_isready -U postgres -d filings_db
+
+db-down:
+	@echo "🛑 Stopping Postgres..."
+	docker compose down
+
+logs:
+	docker compose logs -f postgres
+
+db-psql:
+	docker exec -it filings_postgres psql -U postgres -d filings_db
+
+db-status:
+	docker exec -it filings_postgres pg_isready -U postgres -d filings_db
+
+# ---------- 测试 ----------
+test: ensure-venv
+	@echo "🧪 Running tests..."
+	@. .venv/bin/activate && pytest -q
