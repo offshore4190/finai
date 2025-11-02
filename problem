@@ -1,0 +1,6 @@
+Note: You need to unset STORAGE_ROOT before running tests if that environment variable is set in your shell, as it overrides
+  the .env file configuration.
+
+  ./venv/bin/python -m pip install --upgrade pip
+
+  make -f Makefilecopy start

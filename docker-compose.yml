@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: filings_postgres
+    environment:
+      POSTGRES_DB: filings_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  etl:
+    build: .
+    container_name: filings_etl
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: filings_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      STORAGE_ROOT: /data/filings
+      SEC_USER_AGENT: ${SEC_USER_AGENT}
+      LOG_FORMAT: console
+    volumes:
+      - ./data:/data/filings
+      - ./logs:/app/logs
+    command: ["python", "main.py", "--help"]
+
+volumes:
+  postgres_data:
