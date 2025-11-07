@@ -25,6 +25,12 @@ class Company(Base):
     exchange = Column(String(20), nullable=False)  # Increased to support 'NYSE American'
     is_active = Column(Boolean, default=True)
     status = Column(String(20), nullable=False, default='active')  # 'active' or 'merged'
+
+    # Foreign Private Issuer (FPI) fields
+    is_foreign = Column(Boolean, default=False, nullable=False)  # True for FPIs (20-F/40-F filers)
+    fpi_category = Column(String(32))  # 'FPI', 'Canadian FPI', 'Unknown'
+    country_code = Column(String(2))  # ISO 3166-1 alpha-2 (e.g., 'CA', 'GB', 'JP')
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -36,6 +42,7 @@ class Company(Base):
         Index('idx_companies_cik', 'cik'),
         Index('idx_companies_ticker', 'ticker'),
         Index('idx_companies_status', 'status'),
+        Index('idx_companies_is_foreign', 'is_foreign', postgresql_where=Column('is_foreign') == True),
     )
 
 
@@ -121,6 +128,7 @@ class Artifact(Base):
         Index('idx_artifacts_filing', 'filing_id'),
         Index('idx_artifacts_status', 'status'),
         Index('idx_artifacts_sha256', 'sha256'),
+        Index('idx_artifacts_type_status', 'artifact_type', 'status'),  # For foreign filing queries
     )
 
 
