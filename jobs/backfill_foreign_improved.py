@@ -188,6 +188,57 @@ class ImprovedForeignBackfillJob:
             for filing_data in filings_data:
                 filing_date = filing_data['filing_date']
 
+                # ========== 新增：检查并获取 primary_document ==========
+                primary_doc = filing_data.get('primary_document')
+
+                # 如果SEC API没有返回primary_document，从index页面获取
+                if not primary_doc or primary_doc.strip() == '':
+                    logger.info(
+                        "primary_document_missing_fetching_from_index",
+                        ticker=company.ticker,
+                        form_type=filing_data['form_type'],
+                        accession=filing_data['accession_number']
+                    )
+
+                    try:
+                        primary_doc = self.sec_client.get_primary_document_from_index(
+                            company.cik,
+                            filing_data['accession_number']
+                        )
+
+                        if primary_doc:
+                            filing_data['primary_document'] = primary_doc
+                            logger.info(
+                                "primary_document_retrieved_from_index",
+                                ticker=company.ticker,
+                                filename=primary_doc
+                            )
+                        else:
+                            logger.warning(
+                                "primary_document_not_found_in_index",
+                                ticker=company.ticker,
+                                accession=filing_data['accession_number']
+                            )
+                    except Exception as e:
+                        logger.error(
+                            "failed_to_fetch_primary_document_from_index",
+                            ticker=company.ticker,
+                            accession=filing_data['accession_number'],
+                            error=str(e)
+                        )
+
+                # 如果还是没有primary_document，跳过这个filing
+                if not filing_data.get('primary_document'):
+                    logger.warning(
+                        "skipping_filing_no_primary_document",
+                        ticker=company.ticker,
+                        form_type=filing_data['form_type'],
+                        accession=filing_data['accession_number']
+                    )
+                    stats['skipped'] += 1
+                    continue
+                # ========== 新增结束 ==========
+
                 # ✨ 验证日期
                 if not self.validate_filing_date(filing_date):
                     stats['skipped'] += 1

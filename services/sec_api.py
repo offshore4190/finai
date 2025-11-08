@@ -129,25 +129,101 @@ class SECAPIClient:
     def construct_document_url(self, cik: str, accession: str, filename: str) -> str:
         """
         Construct URL for a specific document.
-        
+
         Args:
             cik: Company CIK
             accession: Accession number (format: 0001234567-23-000123)
             filename: Document filename
-        
+
         Returns:
             Full URL to document
-        
+
         Example:
             https://www.sec.gov/Archives/edgar/data/320193/000032019323000123/aapl-20230930.htm
         """
         # Remove dashes from accession number for URL path
         accession_clean = accession.replace('-', '')
         cik_clean = cik.lstrip('0')  # Remove leading zeros
-        
+
         url = f"{self.BASE_URL}/Archives/edgar/data/{cik_clean}/{accession_clean}/{filename}"
         return url
-    
+
+    def get_primary_document_from_index(self, cik: str, accession: str) -> Optional[str]:
+        """
+        从filing index页面获取主文档文件名
+
+        当SEC API的submissions数据中primaryDocument字段为空时，
+        通过访问filing的index页面来获取实际的主文档文件名。
+
+        Args:
+            cik: 公司CIK（可以带前导零）
+            accession: Accession number (格式: 0000950170-25-040545)
+
+        Returns:
+            主文档文件名，如 "sndl-20241231.htm" 或 "abevform20f_2023.htm"
+            如果找不到，返回 None
+        """
+        # 构造index页面URL
+        accession_clean = accession.replace('-', '')
+        cik_clean = cik.lstrip('0')
+
+        index_url = f"{self.BASE_URL}/Archives/edgar/data/{cik_clean}/{accession_clean}/{accession}-index.htm"
+
+        logger.debug("fetching_index_page", url=index_url, cik=cik, accession=accession)
+
+        try:
+            # 下载index页面
+            response = self._make_request(index_url)
+            html_content = response.text
+
+            # 解析HTML找到主文档
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html_content, 'lxml')
+
+            # 查找Document Format Files表格
+            htm_files = []
+
+            # 查找所有指向.htm/.html的链接
+            for link in soup.find_all('a'):
+                href = link.get('href', '')
+
+                if (href.endswith('.htm') or href.endswith('.html')) and \
+                   'index' not in href.lower() and \
+                   not href.startswith('http'):
+
+                    htm_files.append(href)
+
+            if htm_files:
+                # 策略：选择文件名最长的.htm文件
+                primary = max(htm_files, key=len)
+
+                logger.info(
+                    "primary_document_found_from_index",
+                    accession=accession,
+                    filename=primary,
+                    total_htm_files=len(htm_files),
+                    all_files=htm_files
+                )
+
+                return primary
+            else:
+                logger.warning(
+                    "no_htm_files_found_in_index",
+                    accession=accession,
+                    index_url=index_url
+                )
+                return None
+
+        except Exception as e:
+            logger.error(
+                "index_parsing_failed",
+                accession=accession,
+                index_url=index_url,
+                error=str(e),
+                exc_info=True
+            )
+            return None
+
     def parse_filings(
         self,
         submissions_data: Dict,
