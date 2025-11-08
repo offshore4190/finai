@@ -14,6 +14,8 @@ from jobs.backfill import BackfillJob
 from jobs.incremental import IncrementalUpdateJob
 from jobs.listings_ref_sync import ListingsRefSyncJob
 from jobs.exchange_enrichment import ExchangeEnrichmentJob
+from jobs.foreign_company_identification import ForeignCompanyIdentificationJob
+from jobs.backfill_foreign import ForeignBackfillJob
 
 # Configure structured logging
 structlog.configure(
@@ -64,6 +66,10 @@ def init_database():
     migration_path = "migrations/007_fix_sha256_constraint.sql"
     execute_schema_file(migration_path)
 
+    # Execute foreign company support migration
+    migration_path = "migrations/008_add_foreign_company_support.sql"
+    execute_schema_file(migration_path)
+
     logger.info("database_initialized")
 
 
@@ -99,6 +105,36 @@ def run_exchange_enrichment():
     """Run exchange enrichment job."""
     logger.info("starting_exchange_enrichment")
     job = ExchangeEnrichmentJob()
+    job.run()
+
+
+def run_foreign_identify(limit: int = None, dry_run: bool = False):
+    """Run foreign company identification job."""
+    logger.info("starting_foreign_identification", limit=limit, dry_run=dry_run)
+    job = ForeignCompanyIdentificationJob(limit=limit, dry_run=dry_run)
+    job.run()
+
+
+def run_foreign_backfill(
+    limit: int = None,
+    exchange: str = None,
+    include_6k: str = "minimal",
+    dry_run: bool = False
+):
+    """Run foreign company backfill job."""
+    logger.info(
+        "starting_foreign_backfill",
+        limit=limit,
+        exchange=exchange,
+        include_6k=include_6k,
+        dry_run=dry_run
+    )
+    job = ForeignBackfillJob(
+        limit=limit,
+        exchange=exchange,
+        include_6k=include_6k,
+        dry_run=dry_run
+    )
     job.run()
 
 
@@ -152,7 +188,34 @@ Examples:
 
     # Incremental command
     subparsers.add_parser('incremental', help='Run incremental update (weekly)')
-    
+
+    # Foreign company identification command
+    foreign_identify_parser = subparsers.add_parser(
+        'foreign-identify',
+        help='Identify Foreign Private Issuers (FPIs) in company registry'
+    )
+    foreign_identify_parser.add_argument('--limit', type=int, help='Limit number of companies (for testing)')
+    foreign_identify_parser.add_argument('--dry-run', action='store_true', help='Dry run mode (no changes saved)')
+
+    # Foreign company backfill command
+    foreign_backfill_parser = subparsers.add_parser(
+        'foreign-backfill',
+        help='Backfill foreign filings (20-F/40-F/6-K) for identified FPIs'
+    )
+    foreign_backfill_parser.add_argument('--limit', type=int, help='Limit number of companies (for testing)')
+    foreign_backfill_parser.add_argument(
+        '--exchange',
+        choices=['NASDAQ', 'NYSE'],
+        help='Filter by exchange'
+    )
+    foreign_backfill_parser.add_argument(
+        '--include-6k',
+        choices=['minimal', 'financial', 'all'],
+        default='minimal',
+        help='6-K inclusion policy (default: minimal)'
+    )
+    foreign_backfill_parser.add_argument('--dry-run', action='store_true', help='Dry run mode (no changes saved)')
+
     args = parser.parse_args()
     
     if not args.command:
@@ -172,6 +235,15 @@ Examples:
             run_backfill(limit=args.limit)
         elif args.command == 'incremental':
             run_incremental()
+        elif args.command == 'foreign-identify':
+            run_foreign_identify(limit=args.limit, dry_run=args.dry_run)
+        elif args.command == 'foreign-backfill':
+            run_foreign_backfill(
+                limit=args.limit,
+                exchange=args.exchange,
+                include_6k=args.include_6k,
+                dry_run=args.dry_run
+            )
 
         logger.info("command_completed", command=args.command)
         
